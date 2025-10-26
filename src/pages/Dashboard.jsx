@@ -15,7 +15,8 @@ import {
   Calendar as CalendarIcon,
   Target, // Goal Icon
   Zap, // Goal Input Icon
-  Clock // Timeline Icon
+  Clock, // Timeline Icon
+  Pencil, // Edit Icon
 } from 'lucide-react';
 import { 
   collection, 
@@ -34,12 +35,18 @@ export default function Dashboard() {
   const [newHabit, setNewHabit] = useState('');
   const [loading, setLoading] = useState(true);
   const [showHabitForm, setShowHabitForm] = useState(false);
+  
+  // Goal States
   const [goals, setGoals] = useState([]);
   const [newGoal, setNewGoal] = useState('');
-  const [newGoalStartDate, setNewGoalStartDate] = useState(''); // New: Start Date
-  const [newGoalEndDate, setNewGoalEndDate] = useState('');     // New: End Date
+  const [newGoalStartDate, setNewGoalStartDate] = useState('');
+  const [newGoalEndDate, setNewGoalEndDate] = useState('');
   const [showGoalForm, setShowGoalForm] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(null); // New: Stores the goal being edited { id, name, startDate, endDate }
+
+  // Habit States
   const [selectedGoalId, setSelectedGoalId] = useState('');
+  const [editingHabit, setEditingHabit] = useState(null); // New: Stores the habit being edited { id, name, goalId }
   
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
@@ -48,14 +55,14 @@ export default function Dashboard() {
     if (currentUser) {
       loadHabits();
       loadGoals();
-      // Set today's date as default for the new goal start date
       setNewGoalStartDate(new Date().toISOString().split('T')[0]);
     }
   }, [currentUser]);
 
-  // --- GOAL FUNCTIONS (Modified) ---
+  // --- GOAL CRUD FUNCTIONS (Modified) ---
 
   async function loadGoals() {
+    // ... (unchanged)
     if (!currentUser) return;
     try {
       const q = query(
@@ -78,7 +85,6 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newGoal.trim() || !newGoalStartDate || !newGoalEndDate) return;
     
-    // Simple validation for end date after start date
     if (new Date(newGoalStartDate) > new Date(newGoalEndDate)) {
       alert("Goal End Date cannot be before the Start Date!");
       return;
@@ -88,8 +94,8 @@ export default function Dashboard() {
       const goalData = {
         name: newGoal,
         userId: currentUser.uid,
-        startDate: newGoalStartDate, // Save Start Date
-        endDate: newGoalEndDate,     // Save End Date
+        startDate: newGoalStartDate,
+        endDate: newGoalEndDate,
         createdAt: new Date().toISOString()
       };
       
@@ -100,7 +106,7 @@ export default function Dashboard() {
       // Reset form fields
       setNewGoal('');
       setNewGoalEndDate('');
-      setNewGoalStartDate(new Date().toISOString().split('T')[0]); // Reset to today
+      setNewGoalStartDate(new Date().toISOString().split('T')[0]);
       setShowGoalForm(false);
       setSelectedGoalId(newGoalWithId.id); 
     } catch (error) {
@@ -108,7 +114,44 @@ export default function Dashboard() {
     }
   }
   
-  // --- HABIT FUNCTIONS (Unchanged logic for brevity, only showing for context) ---
+  // NEW FUNCTION: Handles goal update
+  async function updateGoal(e) {
+      e.preventDefault();
+      if (!editingGoal || !editingGoal.name.trim() || !editingGoal.startDate || !editingGoal.endDate) return;
+
+      if (new Date(editingGoal.startDate) > new Date(editingGoal.endDate)) {
+          alert("Goal End Date cannot be before the Start Date!");
+          return;
+      }
+
+      try {
+          const goalRef = doc(db, 'goals', editingGoal.id);
+          const updatedData = {
+              name: editingGoal.name,
+              startDate: editingGoal.startDate,
+              endDate: editingGoal.endDate
+          };
+
+          await updateDoc(goalRef, updatedData);
+
+          // Update local state
+          setGoals(goals.map(g => 
+              g.id === editingGoal.id ? { ...g, ...updatedData } : g
+          ));
+
+          setEditingGoal(null); // Exit edit mode
+      } catch (error) {
+          console.error('Error updating goal:', error);
+      }
+  }
+
+  // Helper to enter goal edit mode
+  const startGoalEdit = (goal) => {
+      setEditingGoal({ ...goal });
+      setShowGoalForm(false); // Hide the Add form if open
+  };
+
+  // --- HABIT CRUD FUNCTIONS (Modified) ---
 
   async function loadHabits() {
     // ... (unchanged)
@@ -138,7 +181,7 @@ export default function Dashboard() {
   }
 
   async function addHabit(e) {
-    // ... (unchanged, just added goalId)
+    // ... (unchanged)
     e.preventDefault();
     if (!newHabit.trim()) return;
 
@@ -163,26 +206,39 @@ export default function Dashboard() {
     }
   }
 
-  async function addHabitFromAI(habitName) {
-    // ... (unchanged, just added goalId)
-    try {
-      const habitData = {
-        name: habitName,
-        userId: currentUser.uid,
-        completedDates: [],
-        streak: 0,
-        goalId: selectedGoalId || null,
-        createdAt: new Date().toISOString()
-      };
+  // NEW FUNCTION: Handles habit update
+  async function updateHabit(e) {
+      e.preventDefault();
+      if (!editingHabit || !editingHabit.name.trim()) return;
 
-      const docRef = await addDoc(collection(db, 'habits'), habitData);
-      setHabits([{ id: docRef.id, ...habitData }, ...habits]);
-    } catch (error) {
-      console.error('Error adding habit from AI:', error);
-    }
+      try {
+          const habitRef = doc(db, 'habits', editingHabit.id);
+          const updatedData = {
+              name: editingHabit.name,
+              goalId: editingHabit.goalId || null,
+          };
+
+          await updateDoc(habitRef, updatedData);
+
+          // Update local state
+          setHabits(habits.map(h => 
+              h.id === editingHabit.id ? { ...h, name: updatedData.name, goalId: updatedData.goalId } : h
+          ));
+
+          setEditingHabit(null); // Exit edit mode
+      } catch (error) {
+          console.error('Error updating habit:', error);
+      }
   }
 
+  // Helper to enter habit edit mode
+  const startHabitEdit = (habit) => {
+      setEditingHabit({ id: habit.id, name: habit.name, goalId: habit.goalId || '' });
+      setShowHabitForm(false); // Hide the Add form if open
+  };
+
   async function toggleHabit(habit) {
+    // ... (unchanged)
     const today = new Date().toISOString().split('T')[0];
     const isCompletedToday = habit.completedDates?.includes(today);
     
@@ -215,6 +271,7 @@ export default function Dashboard() {
   }
 
   function calculateStreak(dates) {
+    // ... (unchanged)
     if (!dates || dates.length === 0) return 0;
     
     const sorted = [...dates].sort().reverse();
@@ -237,6 +294,7 @@ export default function Dashboard() {
   }
 
   async function deleteHabit(habitId) {
+    // ... (unchanged)
     try {
       await deleteDoc(doc(db, 'habits', habitId));
       setHabits(habits.filter(h => h.id !== habitId));
@@ -271,7 +329,6 @@ export default function Dashboard() {
     );
   }
 
-  // Helper function to find goal data (now includes dates)
   const getGoalData = (goalId) => {
     const goal = goals.find(g => g.id === goalId);
     return goal 
@@ -281,7 +338,6 @@ export default function Dashboard() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    // Format to a readable date (e.g., Oct 26)
     return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
@@ -290,13 +346,14 @@ export default function Dashboard() {
     <div className="black-bg">
       <div className="container" style={{ minHeight: '100vh', paddingTop: '2rem', paddingBottom: '2rem' }}>
         
-        {/* Header (omitted for brevity) */}
+        {/* Header and Stats (omitted for brevity) */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="glass-card"
           style={{ marginBottom: '2rem' }}
         >
+          {/* ... Header Content ... */}
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -330,7 +387,6 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {/* Stats (Goal card updated) */}
           <div style={{ 
             display: 'grid', 
             gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
@@ -355,7 +411,6 @@ export default function Dashboard() {
               <div className="stats-card-label">Active Habits</div>
             </div>
 
-            {/* Goal Stat Card */}
             <div className="stats-card">
               <Target size={28} color="#f59e0b" />
               <div className="stats-card-value">{goals.length}</div>
@@ -373,14 +428,84 @@ export default function Dashboard() {
           <Calendar habits={habits} />
         </motion.div>
 
-        {/* --- ADD GOAL SECTION (Modified) --- */}
+        {/* --- GOAL EDIT FORM --- */}
+        <AnimatePresence>
+            {editingGoal && (
+                <motion.form
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="glass-card"
+                    onSubmit={updateGoal}
+                    style={{ marginBottom: '1.5rem', border: '2px solid #f59e0b' }}
+                >
+                    <h4 style={{color: '#f59e0b', marginBottom: '1rem', fontWeight: 600}}>
+                        <Pencil size={18} style={{marginRight: '8px'}} /> Edit Goal: {editingGoal.name}
+                    </h4>
+                    
+                    <div style={{ marginBottom: '1rem' }}>
+                        <input
+                            type="text"
+                            className="neon-input"
+                            value={editingGoal.name}
+                            onChange={(e) => setEditingGoal({...editingGoal, name: e.target.value})}
+                            required
+                        />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                        <div>
+                            <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Start Date</label>
+                            <input
+                                type="date"
+                                className="neon-input"
+                                value={editingGoal.startDate}
+                                onChange={(e) => setEditingGoal({...editingGoal, startDate: e.target.value})}
+                                required
+                                style={{padding: '0.8rem'}}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Target End Date</label>
+                            <input
+                                type="date"
+                                className="neon-input"
+                                value={editingGoal.endDate}
+                                onChange={(e) => setEditingGoal({...editingGoal, endDate: e.target.value})}
+                                required
+                                style={{padding: '0.8rem'}}
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <button type="submit" className="neon-button" style={{ flex: 1, backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}>
+                            <Check size={20} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                            Save Changes
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setEditingGoal(null)}
+                            className="secondary-button"
+                            style={{ flex: 1 }}
+                        >
+                            Cancel Edit
+                        </button>
+                    </div>
+                </motion.form>
+            )}
+        </AnimatePresence>
+
+
+        {/* --- ADD GOAL SECTION (Hidden when editing) --- */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          style={{ marginBottom: '1.5rem' }}
+          style={{ marginBottom: '1.5rem', display: editingGoal ? 'none' : 'block' }}
         >
           {!showGoalForm ? (
+             // ... (Add Goal Button)
             <button
               onClick={() => setShowGoalForm(true)}
               className="secondary-button"
@@ -390,6 +515,7 @@ export default function Dashboard() {
               Add New Goal
             </button>
           ) : (
+            // ... (Add Goal Form)
             <motion.form
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -398,7 +524,6 @@ export default function Dashboard() {
             >
               <h4 style={{color: '#f59e0b', marginBottom: '1rem', fontWeight: 600}}>Create a Time-bound Goal</h4>
               
-              {/* Goal Name Input */}
               <div style={{ marginBottom: '1rem' }}>
                 <input
                   type="text"
@@ -410,7 +535,6 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Start Date & End Date Inputs */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', color: '#a1a1aa', marginBottom: '0.5rem', fontSize: '0.9rem' }}>Start Date</label>
@@ -435,7 +559,6 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
-              {/* End Date Inputs */}
 
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button type="submit" className="neon-button" style={{ flex: 1, backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}>
@@ -460,14 +583,78 @@ export default function Dashboard() {
         </motion.div>
 
 
-        {/* --- ADD HABIT SECTION (Unchanged, omitted for brevity) --- */}
+        {/* --- HABIT EDIT FORM --- */}
+        <AnimatePresence>
+            {editingHabit && (
+                <motion.form
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="glass-card"
+                    onSubmit={updateHabit}
+                    style={{ marginBottom: '1.5rem', border: '2px solid #9333ea' }}
+                >
+                    <h4 style={{color: '#9333ea', marginBottom: '1rem', fontWeight: 600}}>
+                         <Pencil size={18} style={{marginRight: '8px'}} /> Edit Habit: {editingHabit.name}
+                    </h4>
+                    
+                    {/* Habit Name Input */}
+                    <div style={{ marginBottom: '1rem' }}>
+                        <input
+                            type="text"
+                            className="neon-input"
+                            value={editingHabit.name}
+                            onChange={(e) => setEditingHabit({...editingHabit, name: e.target.value})}
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Goal Selection Dropdown */}
+                    <div style={{ marginBottom: '1rem' }}>
+                        <select
+                            className="neon-input"
+                            value={editingHabit.goalId}
+                            onChange={(e) => setEditingHabit({...editingHabit, goalId: e.target.value})}
+                            style={{ width: '100%', color: editingHabit.goalId ? 'white' : '#a1a1aa' }}
+                        >
+                            <option value="">No Goal</option>
+                            {goals.map(goal => (
+                                <option key={goal.id} value={goal.id}>
+                                    {goal.name} ({formatDate(goal.startDate)} - {formatDate(goal.endDate)})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {/* End Goal Selection Dropdown */}
+
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                        <button type="submit" className="neon-button" style={{ flex: 1 }}>
+                            <Check size={20} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                            Save Changes
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setEditingHabit(null)}
+                            className="secondary-button"
+                            style={{ flex: 1 }}
+                        >
+                            Cancel Edit
+                        </button>
+                    </div>
+                </motion.form>
+            )}
+        </AnimatePresence>
+
+
+        {/* --- ADD HABIT SECTION (Hidden when editing) --- */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          style={{ marginBottom: '1.5rem' }}
+          style={{ marginBottom: '1.5rem', display: editingHabit ? 'none' : 'block' }}
         >
           {!showHabitForm ? (
+            // ... (Add Habit Button)
             <button
               onClick={() => setShowHabitForm(true)}
               className="neon-button"
@@ -477,6 +664,7 @@ export default function Dashboard() {
               Add New Habit (Activity)
             </button>
           ) : (
+            // ... (Add Habit Form)
             <motion.form
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -494,7 +682,6 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Goal Selection Dropdown (Unchanged) */}
               <div style={{ marginBottom: '1rem' }}>
                 <select
                   className="neon-input"
@@ -505,13 +692,12 @@ export default function Dashboard() {
                   <option value="" disabled={!!selectedGoalId}>--- Select a Goal to Link (Optional) ---</option>
                   <option value="">No Goal</option>
                   {goals.map(goal => (
-                    <option key={goal.id} value={goal.id}>{goal.name}>
+                    <option key={goal.id} value={goal.id}>
                         {goal.name} ({formatDate(goal.startDate)} - {formatDate(goal.endDate)})
                     </option>
                   ))}
                 </select>
               </div>
-              {/* End Goal Selection Dropdown */}
 
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <button type="submit" className="neon-button" style={{ flex: 1 }}>
@@ -535,10 +721,10 @@ export default function Dashboard() {
           )}
         </motion.div>
 
-        {/* Habits List (Modified to show Goal Timeline) */}
+        {/* Habits List (Modified to include Edit Button) */}
         <AnimatePresence>
           {habits.length === 0 ? (
-             // ... (Empty state)
+            // ... (Empty state)
              <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -564,7 +750,7 @@ export default function Dashboard() {
           ) : (
             habits.map((habit, index) => {
               const isCompletedToday = habit.completedDates?.includes(today);
-              const goalData = getGoalData(habit.goalId); // Get goal data
+              const goalData = getGoalData(habit.goalId);
               
               return (
                 <motion.div
@@ -592,7 +778,7 @@ export default function Dashboard() {
                       {habit.name}
                     </h3>
                     
-                    {/* Display Goal Name */}
+                    {/* Goal Info */}
                     <div style={{
                         fontSize: '0.85rem',
                         color: goalData.name === 'No Goal Linked' ? '#71717a' : '#f59e0b',
@@ -605,7 +791,7 @@ export default function Dashboard() {
                         <span>{goalData.name}</span>
                     </div>
                     
-                    {/* Display Goal Timeline */}
+                    {/* Timeline Info */}
                     {goalData.startDate && goalData.endDate && (
                       <div style={{
                         fontSize: '0.85rem',
@@ -619,7 +805,6 @@ export default function Dashboard() {
                         <span>{formatDate(goalData.startDate)} - {formatDate(goalData.endDate)}</span>
                       </div>
                     )}
-                    {/* End Display Goal Timeline */}
 
                     {habit.streak > 0 && (
                       <div className="streak-badge" style={{ 
@@ -632,37 +817,103 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <button
-                    onClick={() => deleteHabit(habit.id)}
-                    style={{
-                      background: 'rgba(239, 68, 68, 0.2)',
-                      border: '1px solid rgba(239, 68, 68, 0.4)',
-                      borderRadius: '10px',
-                      padding: '10px',
-                      cursor: 'pointer',
-                      color: '#fca5a5',
-                      transition: 'all 0.3s ease',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.3)';
-                      e.currentTarget.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.4)';
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    <Trash2 size={20} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {/* Edit Habit Button */}
+                    <button
+                        onClick={() => startHabitEdit(habit)}
+                        className="control-button"
+                        title="Edit Habit"
+                        style={{
+                            background: 'rgba(147, 51, 234, 0.2)', // Purple tint
+                            border: '1px solid rgba(147, 51, 234, 0.4)',
+                            color: '#d8b4fe',
+                        }}
+                    >
+                        <Pencil size={20} />
+                    </button>
+
+                    {/* Delete Habit Button (existing) */}
+                    <button
+                      onClick={() => deleteHabit(habit.id)}
+                      className="control-button"
+                      title="Delete Habit"
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                        color: '#fca5a5',
+                      }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.3)';
+                        e.currentTarget.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.4)';
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <Trash2 size={20} />
+                    </button>
+                  </div>
                 </motion.div>
               );
             })
           )}
         </AnimatePresence>
-      </div>
+
+        {/* --- GOALS LIST (NEW SECTION) --- */}
+        <div className="glass-card" style={{ marginTop: '2rem' }}>
+            <h2 style={{
+                fontSize: '1.5rem', 
+                marginBottom: '1.5rem',
+                background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                fontWeight: '700'
+            }}>
+                Your Active Goals
+            </h2>
+            <AnimatePresence>
+                {goals.map(goal => (
+                    <motion.div
+                        key={goal.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 10 }}
+                        className="habit-card"
+                        style={{ padding: '15px', marginBottom: '10px' }}
+                    >
+                        <div style={{ flex: 1 }}>
+                            <h4 style={{ color: '#f59e0b', fontWeight: 600, marginBottom: '0.25rem' }}>
+                                <Target size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                                {goal.name}
+                            </h4>
+                            <div style={{ color: '#a1a1aa', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <Clock size={14} />
+                                <span>{formatDate(goal.startDate)} - {formatDate(goal.endDate)}</span>
+                            </div>
+                        </div>
+                        
+                        <button
+                            onClick={() => startGoalEdit(goal)}
+                            className="control-button"
+                            title="Edit Goal"
+                            style={{
+                                background: 'rgba(245, 158, 11, 0.2)', // Yellow/Orange tint
+                                border: '1px solid rgba(245, 158, 11, 0.4)',
+                                color: '#fcd34d',
+                            }}
+                        >
+                            <Pencil size={20} />
+                        </button>
+                    </motion.div>
+                ))}
+            </AnimatePresence>
+            {goals.length === 0 && (
+                <p style={{color: '#a1a1aa', textAlign: 'center', padding: '1rem'}}>No goals set yet. Add one above!</p>
+            )}
+        </div>
+
 
       {/* AI Chatbot */}
       <AIChatbot 
